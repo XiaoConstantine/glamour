@@ -17,6 +17,38 @@ import (
 
 const markdown = "testdata/readme.markdown.in"
 
+func TestCodeBlockCustomPaletteIsolation(t *testing.T) {
+	palettes := []struct{ color, escape string }{
+		{"#112233", "\x1b[38;2;17;34;51m"},
+		{"#ddeeff", "\x1b[38;2;221;238;255m"},
+	}
+	render := func(t *testing.T, color, escape string) {
+		t.Helper()
+		r, err := NewTermRenderer(WithStyles(ansi.StyleConfig{
+			CodeBlock: ansi.StyleCodeBlock{Chroma: &ansi.Chroma{Text: ansi.StylePrimitive{Color: &color}}},
+		}), WithChromaFormatter("terminal16m"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := r.Render("```text\nsentinel\n```")
+		if err != nil || !strings.Contains(got, escape+"sentinel") {
+			t.Fatalf("palette %s: output %q, error %v; want token prefixed by %q", color, got, err, escape)
+		}
+	}
+	// Switching back must work too, regardless of which palette rendered first.
+	for _, index := range []int{0, 1, 0} {
+		render(t, palettes[index].color, palettes[index].escape)
+	}
+	for _, palette := range palettes {
+		t.Run(palette.color, func(t *testing.T) {
+			t.Parallel()
+			for range 20 {
+				render(t, palette.color, palette.escape)
+			}
+		})
+	}
+}
+
 func TestTermRendererWriter(t *testing.T) {
 	r, err := NewTermRenderer(
 		WithStandardStyle(styles.DarkStyle),
