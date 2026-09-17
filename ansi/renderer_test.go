@@ -11,9 +11,11 @@ import (
 	"github.com/charmbracelet/x/exp/golden"
 	"github.com/yuin/goldmark"
 	emoji "github.com/yuin/goldmark-emoji"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer"
+	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 )
 
@@ -21,6 +23,37 @@ const (
 	examplesDir = "../styles/examples/"
 	issuesDir   = "../testdata/issues/"
 )
+
+func TestCodeBlockPreservesSourceSegments(t *testing.T) {
+	for _, tc := range []struct {
+		name, source, code, language string
+	}{
+		{"fenced", "```go\nleft\t世界\nright\n```\n", "left\t世界\nright\n", "go"},
+		{"open fence", "```go\nfirst\nunfinished", "first\nunfinished\n", "go"},
+		{"indented", "    left\n      right\n", "left\n  right\n", ""},
+		{"tabs", "\t  left\n\t\tright\n", "  left\n\tright\n", ""},
+		{"quoted fence", "> ```go\n> left\n> right\n> ```\n", "left\nright\n", "go"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := []byte(tc.source)
+			doc := goldmark.New().Parser().Parse(text.NewReader(source))
+			blocks := 0
+			err := ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+				if entering && (node.Kind() == ast.KindFencedCodeBlock || node.Kind() == ast.KindCodeBlock) {
+					blocks++
+					code := NewRenderer(Options{}).NewElement(node, source).Renderer.(*CodeBlockElement)
+					if code.Code != tc.code || code.Language != tc.language {
+						t.Errorf("code = %q, language = %q; want %q, %q", code.Code, code.Language, tc.code, tc.language)
+					}
+				}
+				return ast.WalkContinue, nil
+			})
+			if err != nil || blocks != 1 {
+				t.Fatalf("walk error = %v, code blocks = %d; want one", err, blocks)
+			}
+		})
+	}
+}
 
 func TestRenderer(t *testing.T) {
 	files, err := filepath.Glob(examplesDir + "*.md")
